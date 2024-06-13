@@ -8,10 +8,10 @@ import time
 
 def sanitize_filename(filename):
     """Sanitizes the filename by removing or replacing invalid characters.
-
+    
     Args:
         filename: The original filename.
-
+    
     Returns:
         The sanitized filename.
     """
@@ -19,45 +19,40 @@ def sanitize_filename(filename):
     sanitized_filename = re.sub(pattern, '_', filename)
     return sanitized_filename
 
-def download_video(video, output_path, retries=3):
-    """Downloads a single YouTube video to the specified path.
-
+def download_video(video, output_path, index=None, retries=3):
+    """Downloads a single YouTube video to the specified path with an optional index number prepended to the filename.
+    
     Args:
         video: The YouTube video object.
         output_path: The directory where the video will be saved.
+        index: The index of the video in the playlist (optional).
         retries: Number of retry attempts for failed downloads.
     """
     video_title = sanitize_filename(video.title)
-    file_path = os.path.join(output_path, f"{video_title}.mp4")
+    if index is not None:
+        file_path = os.path.join(output_path, f"{index+1:03d} - {video_title}.mp4")  # Using 3 digits for indexing
+    else:
+        file_path = os.path.join(output_path, f"{video_title}.mp4")
+    
     if os.path.exists(file_path):
-        print(f"Skipping {video_title}, already downloaded.")
+        print(f"Skipping {file_path}, already downloaded.")
         return
-
+    
     attempt = 0
     while attempt < retries:
         try:
-            video.streams.get_highest_resolution().download(output_path=output_path, filename=f"{video_title}.mp4")
+            video.streams.get_highest_resolution().download(output_path=output_path, filename=os.path.basename(file_path))
             return
         except PytubeError as e:
             print(f"Error downloading {video_title}: {e}. Retrying ({attempt + 1}/{retries})...")
             attempt += 1
             time.sleep(2)  # Wait a bit before retrying
-
+    
     print(f"Failed to download {video_title} after {retries} attempts.")
 
-def download_youtube_video(video_url, output_path):
-    """Downloads a single YouTube video to the specified folder.
-
-    Args:
-        video_url: The URL of the YouTube video to download.
-        output_path: The directory where the video will be saved.
-    """
-    video = pytube.YouTube(video_url)
-    download_video(video, output_path)
-
-def download_youtube_playlist(playlist_url, output_path):
-    """Downloads a YouTube playlist to the specified folder.
-
+def process_playlist(playlist_url, output_path):
+    """Downloads all videos from a YouTube playlist to the specified folder.
+    
     Args:
         playlist_url: The URL of the YouTube playlist to download.
         output_path: The directory where the videos will be saved.
@@ -65,22 +60,49 @@ def download_youtube_playlist(playlist_url, output_path):
     playlist = pytube.Playlist(playlist_url)
     
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(download_video, video, output_path) for video in playlist.videos]
+        futures = [executor.submit(download_video, video, output_path, index) for index, video in enumerate(playlist.videos)]
         for _ in tqdm.tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
             pass
 
+def process_video(video_url, output_path):
+    """Downloads a single YouTube video to the specified folder.
+    
+    Args:
+        video_url: The URL of the YouTube video to download.
+        output_path: The directory where the video will be saved.
+    """
+    video = pytube.YouTube(video_url)
+    download_video(video, output_path)
+
+def process_urls(urls, output_path):
+    """Processes a list of YouTube URLs (can be playlists, videos, or shorts).
+    
+    Args:
+        urls: List of YouTube URLs to process.
+        output_path: The directory where the videos will be saved.
+    """
+    for url in urls:
+        if 'playlist' in url:
+            process_playlist(url, output_path)
+        else:
+            process_video(url, output_path)
+
 if __name__ == "__main__":
-    output_folder = '200pluspython'
+    output_folder = r'I:\Krish Naik Pytthon Playlist'  # Specify your desired output directory here
+
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    choice = input("Enter '1' to download a single video, '2' to download a playlist: ")
+    # Input your URLs here, separated by commas or enclosed in quotes
+    urls_input = """
+        
+        "https://www.youtube.com/playlist?list=PLZoTAELRMXVNUL99R4bDlVYsncUNvwUBB"
+    """  # Example URLs
 
-    if choice == '1':
-        video_url = input("Enter the YouTube video URL: ")
-        download_youtube_video(video_url, output_folder)
-    elif choice == '2':
-        playlist_url = input("Enter the YouTube playlist URL: ")
-        download_youtube_playlist(playlist_url, output_folder)
+    # Clean up the input to handle both single and double quotes
+    urls = re.findall(r"https?://[^\s,']+", urls_input.replace('"', '').replace("'", ""))
+
+    if urls:
+        process_urls(urls, output_folder)
     else:
-        print("Invalid choice. Please enter '1' or '2'.")
+        print("Please set one or more YouTube URLs.")
